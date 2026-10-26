@@ -1,0 +1,528 @@
+/**
+ * QA-DETERMINISTIC-CATALOG | Business-configurable rule thresholds.
+ * A configured rule is not necessarily executable from a transcript.
+ * Only the existing greeting timing engine is connected today.
+ */
+export const DETERMINISTIC_RULES = [
+  ["greeting_time","Greeting time","seconds",7,"transcript","First greeting after call start",true],
+  ["fallback_greeting","Fallback greeting time","seconds",10,"transcript","Alternative greeting threshold",false],
+  ["hold_single","Maximum single hold","seconds",120,"genesys","Hold event timestamps",false],
+  ["hold_total","Maximum total hold","seconds",180,"genesys","All hold event timestamps",false],
+  ["silence","Maximum continuous silence","seconds",15,"audio","Audio/silence events",false],
+  ["transfer_count","Maximum transfers","count",1,"genesys","Transfer event records",false],
+  ["transfer_notice","Transfer notice lead time","seconds",0,"combined","Transcript plus transfer event",false],
+  ["queue_wait","Maximum queue wait","seconds",60,"genesys","Queue and answer events",false],
+  ["after_call_work","Maximum after-call work","seconds",120,"genesys","Wrap-up timestamps",false],
+  ["interaction_duration","Maximum interaction duration","seconds",900,"genesys","Start and end timestamps",false],
+  ["mandatory_greeting","Minimum greeting phrase matches","count",1,"transcript","Approved phrase list",false],
+  ["mandatory_disclosure","Minimum disclosure phrase matches","count",1,"transcript","Approved disclosure phrases",false],
+  ["prohibited_phrase","Maximum prohibited phrase matches","count",0,"transcript","Prohibited phrase list",false],
+  ["closing_statement","Minimum closing phrase matches","count",1,"transcript","Approved closing phrases",false],
+  ["verification_steps","Minimum verification steps","count",2,"combined","Transcript and verified CRM events",false],
+  ["ticket_creation","Required ticket creation events","count",1,"crm","CRM ticket creation event",false],
+  ["disposition_match","Required disposition matches","count",1,"combined","Genesys/CRM disposition and mapped code",false],
+  ["callback_sla","Maximum callback completion time","hours",24,"combined","Callback creation/completion timestamps",false],
+  ["escalation_sla","Maximum escalation time","minutes",30,"crm","Workflow escalation timestamps",false],
+  ["repeat_contact","Repeat-contact lookback","days",7,"history","Customer interaction history",false],
+  ["first_contact_resolution","FCR observation window","days",7,"history","Customer interaction history and resolution rules",false],
+  ["recording_compliance","Minimum recording events","count",1,"genesys","Recording metadata",false],
+  ["channel_sla","Maximum channel response time","seconds",60,"genesys","Channel and response timestamps",false]
+].map(([id,name,unit,value,source,description,active])=>({
+  id,name,unit,value,source,description,enabled:active,
+  connected:id==="greeting_time"||id==="fallback_greeting"
+}));
+
+/** QA-RULE-LINKS | Rule ownership belongs to a rubric criterion. */
+export const RULE_LINKS = {
+  greet7:["greeting_time"],
+  greet10:["fallback_greeting"],
+  opening:["mandatory_greeting"],
+  verification:["verification_steps"],
+  interruption:[],
+  deadAir:["silence"],
+  name:[],
+  solution:[],
+  systems:["ticket_creation","disposition_match"],
+  callback:["callback_sla"],
+  hold:["hold_single","hold_total","transfer_notice"],
+  closing:["closing_statement"],
+  rude:["prohibited_phrase"],
+  disconnect:["recording_compliance"],
+  survey:[],
+  assistance:[],
+  impact:[],
+  questions:[],
+  ack:[],
+  repeat:["repeat_contact","first_contact_resolution"],
+  empathy:[],
+  pace:[],
+  positive:[],
+  rapport:[],
+  tone:[],
+  conflict:[],
+  brand:[]
+};
+export const EXTRA_RULE_LINKS = {
+  hold:["hold_single","hold_total","transfer_notice"],
+  systems:["ticket_creation","disposition_match","after_call_work","transfer_count"],
+  callback:["callback_sla","escalation_sla"],
+  opening:["mandatory_greeting"],
+  closing:["closing_statement"],
+  deadAir:["silence"],
+  verification:["verification_steps"],
+  repeat:["repeat_contact","first_contact_resolution"],
+  disconnect:["recording_compliance"],
+  solution:["prohibited_phrase"],
+  impact:[]
+};
+export function linkedRules(id) { return EXTRA_RULE_LINKS[id] || RULE_LINKS[id] || []; }
+
+/**
+ * QA-PARENT-CHILD-ACTIVATION
+ * Parent toggles are master switches for every owned quantitative and
+ * qualitative check. Individual checks remain editable while enabled.
+ */
+export function setCriterionEnabled(rubric, criterionId, enabled) {
+  const criterion = rubric.criteria?.find(c => c.id === criterionId);
+  if (!criterion) return false;
+  const active = Boolean(enabled);
+  criterion.enabled = active;
+  for (const check of criterion.checkpoints || []) check.enabled = active;
+  const owned = new Set(linkedRules(criterionId));
+  for (const rule of rubric.rules?.deterministic || []) {
+    if (owned.has(rule.id)) rule.enabled = active;
+  }
+  return true;
+}
+
+/** Enforce hierarchy on saved/restored configuration without losing
+ * individually disabled children of an enabled parent. */
+export function enforceParentSelection(rubric) {
+  for (const criterion of rubric.criteria || []) {
+    if (criterion.enabled !== false) continue;
+    for (const check of criterion.checkpoints || []) check.enabled = false;
+    const owned = new Set(linkedRules(criterion.id));
+    for (const rule of rubric.rules?.deterministic || []) {
+      if (owned.has(rule.id)) rule.enabled = false;
+    }
+  }
+  return rubric;
+}
+
+
+/**
+ * QA-CFG-001 — Qualis v2.2.0
+ *
+ * Canonical SHARE QA rubric.
+ *
+ * The application reads a runtime rubric.
+ * Saving an edit does not rewrite app.js.
+ * Instead, subsequent evaluations use the new revision.
+ *
+ * Changing criterion IDs or evaluator methods in source
+ * requires reviewing engine.js and worker.js.
+ */
+
+const specs = [
+  [
+    "greet7", "OPENING",
+    "Greeting within 7 seconds", "timing",
+    "Identifiable greeting begins within 7 seconds of the call starting."
+  ],
+  [
+    "greet10", "OPENING",
+    "Greeting within 10 seconds (fallback)", "timing",
+    "Alternative threshold, disabled by default to avoid double penalties."
+  ],
+  [
+    "opening", "OPENING",
+    "Call opening – introduction", "ai",
+    "Provide a clear, professional SHARE introduction."
+  ],
+  [
+    "impact", "CUSTOMER INFORMATION",
+    "Questioning skills – resolution affected", "ai",
+    "Questioning should not unnecessarily impede the outcome."
+  ],
+  [
+    "questions", "CUSTOMER INFORMATION",
+    "Questioning skills", "ai",
+    "Ask appropriate questions to understand the issue."
+  ],
+  [
+    "verification", "CUSTOMER INFORMATION",
+    "Customer account/details verification", "external",
+    "Verify account details in accordance with the approved procedure."
+  ],
+  [
+    "interruption", "LISTENING SKILLS",
+    "Avoid interruption", "audio",
+    "Avoid inappropriate interruption or overlap."
+  ],
+  [
+    "ack", "LISTENING SKILLS",
+    "Acknowledgement / verbal nods", "ai",
+    "Acknowledge the customer meaningfully."
+  ],
+  [
+    "repeat", "LISTENING SKILLS",
+    "Avoid customer repetition", "ai",
+    "Avoid needless repetition of information the customer already gave."
+  ],
+  [
+    "empathy", "LISTENING SKILLS",
+    "Empathy and showing concern", "ai",
+    "Show appropriate concern when the customer needs it."
+  ],
+  [
+    "pace", "COMMUNICATION SKILLS",
+    "Conversational pace", "audio",
+    "Speak at an understandable conversational pace."
+  ],
+  [
+    "positive", "COMMUNICATION SKILLS",
+    "Professional communication – positive statements", "ai",
+    "Use solution-oriented, professional language."
+  ],
+  [
+    "rapport", "COMMUNICATION SKILLS",
+    "Building rapport", "ai",
+    "Build a respectful, attentive connection."
+  ],
+  [
+    "tone", "COMMUNICATION SKILLS",
+    "Voice tone", "audio",
+    "Maintain an appropriate professional voice tone."
+  ],
+  [
+    "conflict", "COMMUNICATION SKILLS",
+    "Avoid arguments and handle conflict", "ai",
+    "Handle disagreement calmly and constructively."
+  ],
+  [
+    "deadAir", "COMMUNICATION SKILLS",
+    "No dead air", "audio",
+    "Avoid unexplained extended silence; requires audio or events."
+  ],
+  [
+    "name", "COMMUNICATION SKILLS",
+    "Use customer name twice", "external",
+    "Use the reliably established customer preferred name at least twice."
+  ],
+  [
+    "solution", "PROCESS & PROCEDURES",
+    "Complete and accurate information/solution", "external",
+    "Provide correct information according to current approved SOP."
+  ],
+  [
+    "systems", "PROCESS & PROCEDURES",
+    "System usage", "external",
+    "Use the prescribed application and complete system steps."
+  ],
+  [
+    "brand", "PROCESS & PROCEDURES",
+    "Professional brand representation", "ai",
+    "Represent SHARE professionally."
+  ],
+  [
+    "callback", "PROCESS & PROCEDURES",
+    "Call back process", "external",
+    "Follow approved callback process."
+  ],
+  [
+    "hold", "PROCESS & PROCEDURES",
+    "Call hold process", "ai",
+    "Observe call/chat hold permission and duration policy."
+  ],
+  [
+    "survey", "CALL CLOSING",
+    "Post-call survey", "ai",
+    "Mention the survey when the call reaches normal closing."
+  ],
+  [
+    "assistance", "CALL CLOSING",
+    "Further assistance", "ai",
+    "Offer further assistance before normal closure."
+  ],
+  [
+    "closing", "CALL CLOSING",
+    "Appropriate call ending", "ai",
+    "End politely and professionally with SHARE context."
+  ],
+  [
+    "rude", "PROFESSIONAL CONDUCT",
+    "Advisor avoided rude conduct", "ai",
+    "Avoid rude or disrespectful speech."
+  ],
+  [
+    "disconnect", "PROFESSIONAL CONDUCT",
+    "No improper disconnection/nonresponse", "external",
+    "Do not cause improper disconnection; requires Genesys event evidence."
+  ]
+];
+
+/**
+ * Scoring checkpoints are objective behaviour statements.
+ * Each can be edited in QA Configuration.
+ *
+ * Gemini identifies MET, MISSED, UNKNOWN or NA.
+ * Qualis performs the percentage calculation.
+ */
+
+const checkpoints = {
+  hold: ["Requests permission before placing the customer on hold", "Apologises or courteously explains the hold before initiating it", "Thanks the customer when returning from hold"],
+  opening: [
+    "Identifies SHARE or the service appropriately",
+    "Introduces the agent or provides a professional identity",
+    "Invites the customer to explain the reason for contact",
+    "Uses a professional, courteous greeting rather than slang or dismissive language; assess wording independently of greeting timing"
+  ],
+
+  impact: [
+    "Questions remain relevant to resolving the stated issue",
+    "Avoids unnecessary repeated or detouring questions",
+    "Questioning does not demonstrably obstruct progress"
+  ],
+
+  questions: [
+    "Clarifies the customer need",
+    "Asks relevant follow-up questions where needed",
+    "Confirms understanding before proposing next steps"
+  ],
+
+  ack: [
+    "Acknowledges important customer statements",
+    "Acknowledgement fits the context",
+    "Demonstrates that previous information was understood"
+  ],
+
+  repeat: [
+    "Retains key information already provided",
+    "Avoids unnecessary repeat requests",
+    "Clarifies only where there is a genuine ambiguity"
+  ],
+
+  empathy: [
+    "Recognises expressed difficulty or emotion",
+    "Acknowledges the impact on the customer",
+    "Responds with contextually appropriate concern"
+  ],
+
+  positive: [
+    "Uses respectful and constructive language",
+    "Explains available options or next steps",
+    "Avoids needlessly blunt or discouraging replies"
+  ],
+
+  rapport: [
+    "Responds attentively to the customer",
+    "Maintains professional, respectful engagement",
+    "Personalises responses using known interaction context"
+  ],
+
+  conflict: [
+    "Does not argue or blame the customer",
+    "Acknowledges disagreement or frustration calmly",
+    "Offers a constructive next step when possible"
+  ],
+
+  brand: [
+    "Uses respectful service language",
+    "Represents the brand professionally",
+    "Avoids statements that undermine customer trust"
+  ],
+
+  survey: [
+    "Introduces the survey when there is a completed normal closing",
+    "Explains the survey briefly and neutrally"
+  ],
+
+  assistance: [
+    "Offers further help at the appropriate closing",
+    "Allows the customer opportunity to raise another need"
+  ],
+
+  closing: [
+    "Provides a polite closing response",
+    "Acknowledges the end of the customer need",
+    "Uses suitable SHARE or service wording"
+  ],
+
+  rude: [
+    "Avoids insults, belittling or dismissive statements",
+    "Responds respectfully to customer requests",
+    "Avoids antagonistic or deliberately unhelpful language"
+  ]
+};
+
+
+// QA-CHECK-COVERAGE | Explicit evidence checks for previously unconfigured parameters.
+// These do not imply transcript-only proof; evidence-dependent checks remain unverifiable.
+const additionalChecks = {
+  greet7:[], // Timing is deterministic; no Gemini duplicate.
+  greet10:[], // Timing is deterministic; no Gemini duplicate.
+  verification:["Follows approved customer verification procedure","Does not disclose account information before verification"],
+  interruption:["Allows the customer to finish speaking","Avoids interrupting key customer explanations"],
+  pace:["Maintains an understandable conversational pace","Adapts pace when the customer needs clarification"],
+  tone:["Maintains a calm, professional voice tone","Avoids audible hostility or dismissive delivery"],
+  deadAir:["Avoids unexplained extended silence","Explains pauses or system delays when appropriate"],
+  name:["Uses the customer's verified preferred name when appropriate","Meets the configured customer-name usage requirement"],
+  solution:["Provides a solution aligned with approved knowledge","Avoids unsupported promises or inaccurate policy statements"],
+  systems:["Completes required system actions","Records an accurate disposition or case outcome"],
+  callback:["Communicates the callback commitment","Completes the callback within the applicable SLA"],
+  disconnect:["Does not intentionally terminate the interaction improperly","Follows the correct process when the interaction disconnects"]
+};
+for (const [id,items] of Object.entries(additionalChecks)) {
+  if (!Object.prototype.hasOwnProperty.call(checkpoints,id)) checkpoints[id] = items;
+}
+export const GROUPS = [
+  ...new Set(specs.map(x => x[1]))
+];
+
+export const MODES = {
+  ai: "AI + anchored scoring",
+  timing: "Deterministic timing",
+  audio: "Audio evidence required",
+  external: "System / SOP evidence required"
+};
+
+export function defaultRubric() {
+  return {
+    version: "2.2.0",
+    revision: 1,
+    model: "gemini-3.5-flash-lite",
+
+    instructions:
+      "Evaluate the configured checkpoint meaning, not literal keyword spelling. " +
+      "Accept plausible Arabic/English phonetic or ASR renderings only when " +
+      "the surrounding dialogue clearly supports the same intended behaviour. " +
+      "For example SHARE may be transcribed as a similar-sounding word; " +
+      "require contextual evidence of the brand, not phonetic similarity alone. " +
+      "Do not invent dialogue, CRM events, audio or policy. Cite supporting turns.",
+
+    rules: {
+      deterministic: DETERMINISTIC_RULES.map(r => ({ id:r.id, enabled:r.enabled, value:r.value, operator: ["greeting_time","fallback_greeting"].includes(r.id)?"<=": ["mandatory_greeting","mandatory_disclosure","closing_statement","verification_steps","ticket_creation","disposition_match","recording_compliance","first_contact_resolution"].includes(r.id)?">=":"<=" })),
+      greet7: 7,
+      greet10: 10,
+
+      greetingTerms: [
+        "hello",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "thank you for calling",
+        "welcome to",
+        "مرحبا",
+        "صباح الخير",
+        "مساء الخير",
+        "أهلا",
+        "شكرا لاتصالك"
+      ]
+    },
+
+    criteria: specs.map(
+      ([id, group, name, mode, definition]) => ({
+        id,
+        group,
+        name,
+        mode,
+        definition,
+
+        enabled: id !== "greet10",
+        weight: 5,
+
+        instructions:
+          "Use evidence only. Unknown when unsupported; " +
+          "not applicable only when genuinely irrelevant.",
+
+        checkpoints: (checkpoints[id] || []).map(
+          (text, i) => ({
+            id: `${id}-${i + 1}`,
+            text,
+            enabled: true
+          })
+        )
+      })
+    )
+  };
+}
+
+const KEY = "qualis-rubric-v2.2.0";
+
+export function loadRubric() {
+  const fresh = defaultRubric();
+
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(KEY)
+    );
+
+    if (!saved) return fresh;
+
+    const previous = new Map(
+      (saved.criteria || []).map(
+        c => [c.id, c]
+      )
+    );
+
+    const restored = {
+      ...fresh,
+
+      revision: Number.isInteger(saved.revision)
+        ? saved.revision : 1,
+
+      model: [
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash-lite"
+      ].includes(saved.model)
+        ? saved.model : fresh.model,
+
+      instructions:
+        typeof saved.instructions === "string"
+          ? saved.instructions
+          : fresh.instructions,
+
+      rules: {
+        ...fresh.rules,
+        ...saved.rules,
+        deterministic: DETERMINISTIC_RULES.map(def => {
+          const savedRule = Array.isArray(saved.rules?.deterministic)
+            ? saved.rules.deterministic.find(x => x.id === def.id) : null;
+          return { id:def.id, enabled:typeof savedRule?.enabled === "boolean" ? savedRule.enabled : def.enabled,
+            value:Number.isFinite(savedRule?.value) && savedRule.value >= 0 ? savedRule.value : def.value,
+            operator:[">=",">","<=","<","==","!="].includes(savedRule?.operator)?savedRule.operator:(["mandatory_greeting","mandatory_disclosure","closing_statement","verification_steps","ticket_creation","disposition_match","recording_compliance","first_contact_resolution"].includes(def.id)?">=":"<=") };
+        })
+      },
+
+      criteria: fresh.criteria.map(c => {
+        const old = previous.get(c.id) || {};
+
+        return {
+          ...c,
+          ...old,
+
+          id: c.id,
+          group: c.group,
+          mode: c.mode,
+
+          checkpoints:
+            c.checkpoints.map(a => {
+              const savedCheck = Array.isArray(old.checkpoints) ? old.checkpoints.find(x => x.id === a.id) : null;
+              return savedCheck ? { ...a, ...savedCheck, enabled: savedCheck.enabled !== false } : a;
+            })
+        };
+      })
+    };
+    return enforceParentSelection(restored);
+
+  } catch {
+    return fresh;
+  }
+}
+
+export function saveRubric(rubric) {
+  localStorage.setItem(
+    KEY,
+    JSON.stringify(enforceParentSelection(rubric))
+  );
+}
