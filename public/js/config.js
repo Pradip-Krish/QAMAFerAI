@@ -64,15 +64,15 @@ export const RULE_LINKS = {
 };
 export const EXTRA_RULE_LINKS = {
   hold:["hold_single","hold_total","transfer_notice"],
-  systems:["ticket_creation","disposition_match","after_call_work","transfer_count"],
+  systems:["ticket_creation","disposition_match","after_call_work","transfer_count","interaction_duration","queue_wait","channel_sla"],
   callback:["callback_sla","escalation_sla"],
-  opening:["mandatory_greeting"],
+  opening:["mandatory_greeting","mandatory_disclosure"],
   closing:["closing_statement"],
   deadAir:["silence"],
   verification:["verification_steps"],
   repeat:["repeat_contact","first_contact_resolution"],
   disconnect:["recording_compliance"],
-  solution:["prohibited_phrase"],
+  solution:[],
   impact:[]
 };
 export function linkedRules(id) { return EXTRA_RULE_LINKS[id] || RULE_LINKS[id] || []; }
@@ -88,6 +88,14 @@ export function setCriterionEnabled(rubric, criterionId, enabled) {
   const active = Boolean(enabled);
   criterion.enabled = active;
   for (const check of criterion.checkpoints || []) check.enabled = active;
+  // Greeting fallback is an alternative threshold, never an additional score.
+  if (active && (criterionId === "greet7" || criterionId === "greet10")) {
+    const otherId = criterionId === "greet7" ? "greet10" : "greet7";
+    const other = rubric.criteria?.find(c => c.id === otherId);
+    if (other) { other.enabled = false; for (const check of other.checkpoints || []) check.enabled = false; }
+    const otherRule = rubric.rules?.deterministic?.find(r => r.id === (otherId === "greet7" ? "greeting_time" : "fallback_greeting"));
+    if (otherRule) otherRule.enabled = false;
+  }
   const owned = new Set(linkedRules(criterionId));
   for (const rule of rubric.rules?.deterministic || []) {
     if (owned.has(rule.id)) rule.enabled = active;
@@ -390,7 +398,7 @@ export function defaultRubric() {
   return {
     version: "2.2.0",
     revision: 1,
-    model: "gemini-3.5-flash-lite",
+    model: "gpt-4o",
 
     instructions:
       "Evaluate the configured checkpoint meaning, not literal keyword spelling. " +
@@ -405,6 +413,10 @@ export function defaultRubric() {
       greet7: 7,
       greet10: 10,
 
+      // Optional approved phrase lists; an empty list remains UNKNOWN, never an inferred pass.
+      disclosureTerms: [],
+      prohibitedTerms: [],
+      closingTerms: [],
       greetingTerms: [
         "hello",
         "good morning",
@@ -472,8 +484,7 @@ export function loadRubric() {
         ? saved.revision : 1,
 
       model: [
-        "gemini-3.5-flash-lite",
-        "gemini-2.5-flash-lite"
+        "gpt-4o"
       ].includes(saved.model)
         ? saved.model : fresh.model,
 
