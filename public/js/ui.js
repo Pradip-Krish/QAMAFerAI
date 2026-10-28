@@ -674,7 +674,7 @@ export function callDetail(call, rubric, tab = "scorecard") {
         <h3>Evaluation Results</h3>
         <p class="muted">${esc(call.agent)} · ${esc(call.id || call.key)} · ${esc(call.duration || "Duration unavailable")} · ${chip(call.status)}</p>
       </div>
-      <div class="qmf-result-head-score"><span>QA Score</span><strong>${fmt(call.score?.score)}</strong><small>Coverage ${fmt(call.score?.coverage)}</small></div>
+      <div class="qmf-result-head-score"><span>QA Score</span><strong>${fmt(call.score?.score)}</strong><small>${call.score?.score===null && Number.isFinite(call.score?.observedScore)?"Observed "+fmt(call.score.observedScore)+" · ":""}Coverage ${fmt(call.score?.coverage)}</small></div>
     </div>
     <div class="qmf-result-tabs" role="tablist" aria-label="Evaluation result views">
       ${[["scorecard","Scorecard"],["transcript","Transcript"],["timeline","Agent timeline"],["insights","Key insights"]].map(([id,label])=>`
@@ -763,11 +763,7 @@ export function callDetail(call, rubric, tab = "scorecard") {
                   }">
                     ${
                       f.score === null
-                        ? esc(
-                            f.status.replaceAll(
-                              "_", " "
-                            )
-                          )
+                        ? esc(f.status==="PARTIAL" ? `PARTIAL · ${f.coverage ?? 0}% coverage` : f.status.replaceAll("_", " "))
                         : fmt(f.score)
                     }
                   </strong>
@@ -1005,6 +1001,13 @@ export function configuration(rubric, selected) {
         `).join("")}
       </section>
 
+      <section class="panel qa-phrase-config">
+        <div class="panel-heading"><div><span class="kicker">TRANSCRIPT RULES</span><h3>Approved phrase lists</h3></div></div>
+        <p class="muted">One approved phrase per line. Empty lists remain UNKNOWN. Text matching does not prove external events.</p>
+        ${[["disclosureTerms","Mandatory disclosure phrases"],["prohibitedTerms","Prohibited phrases"],["closingTerms","Closing phrases"]].map(([key,label])=>`
+          <label>${label}<textarea rows="3" data-phrase-list="${key}" placeholder="One phrase per line">${esc((rubric.rules[key]||[]).join("\n"))}</textarea></label>
+        `).join("")}
+      </section>
       <div class="qa-evaluator-section">
         <section class="panel">
           <div class="panel-heading">
@@ -1017,30 +1020,12 @@ export function configuration(rubric, selected) {
             </div>
 
             <span class="tag">
-              CLOUDFLARE SECRET
+              ENTERPRISE SECRET
             </span>
           </div>
 
-          <label>Active Gemini model</label>
-
-          <select id="model">
-            <option
-              value="gemini-3.5-flash-lite"
-              ${rubric.model ===
-                "gemini-3.5-flash-lite"
-                  ? "selected" : ""}>
-              Gemini 3.5 Flash-Lite (default)
-            </option>
-
-            <option
-              value="gemini-2.5-flash-lite"
-              ${rubric.model ===
-                "gemini-2.5-flash-lite"
-                  ? "selected" : ""}>
-              Gemini 2.5 Flash-Lite
-              (legacy access)
-            </option>
-          </select>
+          <label>Corporate AI deployment</label>
+          <select id="model"><option value="gpt-4o" selected>GPT-4o (Corporate Azure AI Foundry / APIM)</option></select>
 
           <label>
             Global evaluator instructions
